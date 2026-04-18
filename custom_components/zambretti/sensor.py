@@ -9,6 +9,7 @@ import homeassistant.helpers.config_validation as cv
 # Python imports
 import voluptuous as vol
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import NoEntitySpecifiedError
@@ -291,15 +292,16 @@ class Zambretti(SensorEntity):
         required_sensors = [
             self.atmospheric_pressure_sensor,
             self.wind_direction_sensor,
-            self.device_tracker_home,
             self.temperature_sensor,
             self.humidity_sensor,
             self.wind_speed_sensor_knots,
         ]
         # if not all required sensors are available yet then try again later
-        if not self.sensors_valid(required_sensors):
+        sensors_ok, invalid_sensors = self.sensors_valid(required_sensors)
+        if not sensors_ok:
             _LOGGER.debug(
-                "⚠️ Required sensors not yet available. Scheduling re-check in 10 seconds."
+                "⚠️ Required sensors not yet available (%s). Scheduling re-check in 10 seconds.",
+                "; ".join(invalid_sensors),
             )
             self.counter += 1
             self._state = f"Zambretti waiting for sensors ... attempt {self.counter}"
@@ -371,17 +373,90 @@ class Zambretti(SensorEntity):
         # -------------------------------
         # Retrieve, populate and store lat/lon
         # -------------------------------
+        latitude = None
+        longitude = None
         if (
             device_tracker_home_state
             and "latitude" in device_tracker_home_state.attributes
+            and "longitude" in device_tracker_home_state.attributes
         ):
-            latitude = safe_float(device_tracker_home_state.attributes["latitude"])
-            longitude = safe_float(device_tracker_home_state.attributes["longitude"])
-            _LOGGER.debug(f"Device Tracker Location: lat={latitude}, lon={longitude}")
+            latitude = self._safe_float_or_none(
+                device_tracker_home_state.attributes["latitude"]
+            )
+            longitude = self._safe_float_or_none(
+                device_tracker_home_state.attributes["longitude"]
+            )
+
+            if latitude is not None and longitude is not None:
+                _LOGGER.debug(
+                    "Device Tracker Location: lat=%s, lon=%s", latitude, longitude
+                )
+            else:
+                _LOGGER.warning(
+                    "Device tracker exists but latitude/longitude are not numeric."
+                )
         else:
             _LOGGER.warning(
                 "Could not retrieve latitude and longitude from device tracker!"
             )
+
+        # Keep forecasting when tracker is transiently unavailable by falling back
+        # to last known coordinates or HA's configured location.
+        if latitude is None or longitude is None:
+            last_lat = self._safe_float_or_none(self._attributes.get("sensor_latitude"))
+            last_lon = self._safe_float_or_none(
+                self._attributes.get("sensor_longitude")
+            )
+            if last_lat is not None and last_lon is not None:
+                latitude, longitude = last_lat, last_lon
+                _LOGGER.debug(
+                    "Using last known coordinates: lat=%s, lon=%s", latitude, longitude
+                )
+
+        if latitude is None or longitude is None:
+            conf_lat = self._safe_float_or_none(getattr(self.hass.config, "latitude", None))
+            conf_lon = self._safe_float_or_none(
+                getattr(self.hass.config, "longitude", None)
+            )
+            if conf_lat is not None and conf_lon is not None:
+                latitude, longitude = conf_lat, conf_lon
+                _LOGGER.debug(
+                    "Using Home Assistant configured coordinates: lat=%s, lon=%s",
+                    latitude,
+                    longitude,
+                )
+
+        if latitude is None or longitude is None:
+            _LOGGER.debug(
+                "⚠️ Coordinates not available yet. Scheduling re-check in 10 seconds."
+            )
+            self.counter += 1
+            self._state = f"Zambretti waiting for sensors ... attempt {self.counter}"
+            t_pub0 = time.perf_counter()
+            try:
+                self.async_write_ha_state()
+            except NoEntitySpecifiedError:
+                _LOGGER.debug(
+                    "Entity not yet registered; skipping async_write_ha_state()."
+                )
+            t_publish_ms = (time.perf_counter() - t_pub0) * 1000.0
+
+            t_total_ms = (time.perf_counter() - t0_total) * 1000.0
+            t_compute_ms = max(t_total_ms - t_publish_ms, 0.0)
+
+            if Z_DEBUG:
+                _LOGGER.info(
+                    "⏱️ Zambretti perf (%s): total=%.1fms compute=%.1fms publish=%.1fms",
+                    getattr(self, "entity_id", "unknown"),
+                    t_total_ms,
+                    t_compute_ms,
+                    t_publish_ms,
+                )
+
+            loop = asyncio.get_running_loop()
+            loop.call_later(10, lambda: loop.create_task(self.async_update()))
+            return
+
         self._attributes["sensor_latitude"] = latitude
         self._attributes["sensor_longitude"] = longitude
 
@@ -763,13 +838,32 @@ class Zambretti(SensorEntity):
             f"History Hours={self.pressure_history_hours}, Fog Area={self.fog_area_type}"
         )
 
+    @staticmethod
+    def _safe_float_or_none(value):
+        """Safely convert a value to float, returning None on failures."""
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
     def sensors_valid(self, sensor_ids):
-        """Return True if all sensors exist and their state is valid."""
+        """Return (is_valid, errors) for required sensor entity states."""
+        errors = []
         for sensor in sensor_ids:
+            if not sensor:
+                errors.append("missing entity_id in config")
+                continue
+
             state_obj = self.hass.states.get(sensor)
-            if not state_obj or state_obj.state in (None, "unknown", "unavailable"):
-                return False
-        return True
+            if not state_obj:
+                errors.append(f"{sensor}: not found")
+                continue
+
+            normalized_state = str(state_obj.state).strip().lower()
+            if normalized_state in ("", "none", STATE_UNKNOWN, STATE_UNAVAILABLE):
+                errors.append(f"{sensor}: {state_obj.state}")
+
+        return len(errors) == 0, errors
 
 
 # ===============================================================================================
