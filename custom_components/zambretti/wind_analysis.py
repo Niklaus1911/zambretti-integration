@@ -111,41 +111,67 @@ async def determine_wind_speed(hass, entity_id):
     end_time = dt_util.utcnow()
 
     # Fetch wind speed history from HA database
-    history_data = await hass.async_add_executor_job(
-        history.get_significant_states,
-        hass,
-        start_time,
-        end_time,
-        [entity_id],
-        None,
-        False,
-        False,
-        False,
-    )
+    try:
+        history_data = await hass.async_add_executor_job(
+            history.get_significant_states,
+            hass,
+            start_time,
+            end_time,
+            [entity_id],
+            None,
+            False,
+            False,
+            False,
+        )
+    except Exception as err:
+        _LOGGER.debug("⚠️ Wind speed history read failed for %s: %s", entity_id, err)
+        history_data = {}
 
-    if not history_data or entity_id not in history_data:
+    if isinstance(history_data, dict):
+        history_entries = list(history_data.get(entity_id, []))
+    else:
+        history_entries = []
+
+    if not history_entries:
         _LOGGER.debug(
-            f"⚠️ No history data available for {entity_id}. Using current state instead."
+            "⚠️ No usable history data for %s. Using current state instead.",
+            entity_id,
         )
         current_state = hass.states.get(entity_id)
         if current_state:
-            return safe_float(
-                current_state.state
-            ), 1  # Returning 1 as a single data point
-        return 0, 0  # No valid data available
+            speed = safe_float(current_state.state, default=None)
+            if speed is not None:
+                return speed, 1
+        return 0, 0
 
-    # Extract wind speed values
-    wind_speed_values = [
-        safe_float(state.state) for state in history_data.get(entity_id, [])
-    ]
-    # ✅ Calculate the average wind speed
-    average_wind_speed = statistics.mean(wind_speed_values) if wind_speed_values else 0
+    # Extract usable wind speed values from history
+    wind_speed_values = []
+    for state in history_entries:
+        speed = safe_float(state.state, default=None)
+        if speed is not None:
+            wind_speed_values.append(speed)
+
+    if not wind_speed_values:
+        _LOGGER.debug(
+            "⚠️ History entries for %s are unusable. Falling back to current state.",
+            entity_id,
+        )
+        current_state = hass.states.get(entity_id)
+        if current_state:
+            speed = safe_float(current_state.state, default=None)
+            if speed is not None:
+                return speed, 1
+        return 0, 0
+
+    average_wind_speed = statistics.mean(wind_speed_values)
 
     _LOGGER.debug(
-        f"✅ Calculated average wind speed: {average_wind_speed} knots over {len(wind_speed_values)} records."
+        "✅ Calculated average wind speed: %s knots over %s records.",
+        average_wind_speed,
+        len(wind_speed_values),
     )
 
-    return average_wind_speed, len(history_data[entity_id])
+    return average_wind_speed, len(wind_speed_values)
 
 
 def determine_wind_direction(wind_direction, pressure_trend):
