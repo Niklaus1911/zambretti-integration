@@ -1,8 +1,8 @@
 # HA imports
-import asyncio
 import logging
 import time
 from datetime import timedelta
+from typing import Callable
 
 import homeassistant.helpers.config_validation as cv
 
@@ -14,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import NoEntitySpecifiedError
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_time_interval,
 )
 from homeassistant.util import dt as dt_util  # ✅ Import HA's datetime utilities
@@ -40,6 +41,8 @@ from .wind_analysis import (
 from .wind_systems import wind_systems
 
 _LOGGER = logging.getLogger(__name__)
+SERVICE_FORCE_UPDATE = "force_update"
+RETRY_DELAY_SECONDS = 10
 
 
 async def async_setup_entry(
@@ -55,16 +58,20 @@ async def async_setup_entry(
     # dependencies (history/recorder/related sensors) are still warming up.
     async_add_entities([sensor], update_before_add=False)
 
-    # Store reference so the service can update all instances
+    # Store reference so the service can update all live instances.
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN].setdefault("entities", [])
-    hass.data[DOMAIN]["entities"].append(sensor)
+    entities = hass.data[DOMAIN].setdefault("entities", {})
+    if isinstance(entities, list):
+        entities = {
+            getattr(ent, "entry_id", f"legacy_{idx}"): ent
+            for idx, ent in enumerate(entities)
+        }
+        hass.data[DOMAIN]["entities"] = entities
+
+    hass.data[DOMAIN]["entities"][entry.entry_id] = sensor
 
     # Register the force_update service (once)
-    if not hass.data[DOMAIN].get("service_registered"):
-        hass.data[DOMAIN]["service_registered"] = True
-
-        SERVICE_FORCE_UPDATE = "force_update"
+    if not hass.services.has_service(DOMAIN, SERVICE_FORCE_UPDATE):
 
         SERVICE_FORCE_UPDATE_SCHEMA = vol.Schema(
             {
@@ -76,13 +83,17 @@ async def async_setup_entry(
             """Force update one or more Zambretti sensors."""
             entity_id = call.data.get("entity_id")
 
-            entities = hass.data.get(DOMAIN, {}).get("entities", [])
+            entities_data = hass.data.get(DOMAIN, {}).get("entities", {})
+            if isinstance(entities_data, dict):
+                entities = list(entities_data.values())
+            else:
+                entities = list(entities_data)
 
             # Determine targets
             if entity_id is None or entity_id == "all":
                 targets = list(entities)
             else:
-                wanted = set(entity_id)
+                wanted = {entity_id} if isinstance(entity_id, str) else set(entity_id)
                 targets = [
                     e for e in entities if getattr(e, "entity_id", None) in wanted
                 ]
@@ -132,9 +143,10 @@ async def async_setup_entry(
     update_interval = int(safe_float(entry.options.get("update_interval_minutes", 1)))
 
     # Schedule time-based updates at the selected interval
-    async_track_time_interval(
+    remove_interval_listener = async_track_time_interval(
         hass, async_time_based_update, timedelta(minutes=update_interval)
     )
+    entry.async_on_unload(remove_interval_listener)
 
     _LOGGER.debug(
         "✅ Registered time-based updates every %s minute(s).", update_interval
@@ -149,6 +161,8 @@ class Zambretti(SensorEntity):
     def __init__(self, hass, entry):
         self.hass = hass
         self._state = "Initializing"
+        self._retry_unsub: Callable[[], None] | None = None
+        self._update_in_progress = False
         self.config_entry = entry  # ✅ Store config_entry for access later
         self.config = {**entry.data, **entry.options}  # ✅ Merge data and options
 
@@ -281,8 +295,59 @@ class Zambretti(SensorEntity):
         await super().async_added_to_hass()
         self.async_schedule_update_ha_state(force_refresh=True)
 
+    async def async_will_remove_from_hass(self):
+        """Clean up scheduled callbacks and entity tracking on unload."""
+        await super().async_will_remove_from_hass()
+        self._cancel_retry_update()
+
+        domain_data = self.hass.data.get(DOMAIN, {})
+        entities = domain_data.get("entities", {})
+
+        if isinstance(entities, dict):
+            entities.pop(self.entry_id, None)
+            has_entities = bool(entities)
+        else:
+            if self in entities:
+                entities.remove(self)
+            has_entities = bool(entities)
+
+        if not has_entities and self.hass.services.has_service(DOMAIN, SERVICE_FORCE_UPDATE):
+            self.hass.services.async_remove(DOMAIN, SERVICE_FORCE_UPDATE)
+
+    def _cancel_retry_update(self):
+        """Cancel a pending startup retry callback, if any."""
+        if self._retry_unsub is not None:
+            self._retry_unsub()
+            self._retry_unsub = None
+
+    def _schedule_retry_update(self):
+        """Schedule one delayed retry, replacing any existing pending retry."""
+        self._cancel_retry_update()
+
+        async def _retry(_now):
+            self._retry_unsub = None
+            await self.async_update()
+
+        self._retry_unsub = async_call_later(self.hass, RETRY_DELAY_SECONDS, _retry)
+
     async def async_update(self):
         """Fetch sensor data from HA and update the entity state."""
+
+        if self._update_in_progress:
+            _LOGGER.debug(
+                "⏭️ Skipping overlapping update for %s",
+                getattr(self, "entity_id", "unknown"),
+            )
+            return
+
+        self._update_in_progress = True
+        try:
+            await self._async_update_internal()
+        finally:
+            self._update_in_progress = False
+
+    async def _async_update_internal(self):
+        """Internal update implementation."""
 
         t0_total = time.perf_counter()
 
@@ -334,9 +399,8 @@ class Zambretti(SensorEntity):
                     t_publish_ms,
                 )
 
-            # Schedule a re-check in 10 seconds without blocking startup
-            loop = asyncio.get_running_loop()
-            loop.call_later(10, lambda: loop.create_task(self.async_update()))
+            # Schedule a re-check in 10 seconds without blocking startup.
+            self._schedule_retry_update()
             return
 
         # set starting point for alert level
@@ -460,8 +524,7 @@ class Zambretti(SensorEntity):
                     t_publish_ms,
                 )
 
-            loop = asyncio.get_running_loop()
-            loop.call_later(10, lambda: loop.create_task(self.async_update()))
+            self._schedule_retry_update()
             return
 
         self._attributes["sensor_latitude"] = latitude
