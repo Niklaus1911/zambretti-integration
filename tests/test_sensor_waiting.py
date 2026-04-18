@@ -233,10 +233,19 @@ async def test_async_update_keeps_previous_state_when_started_and_sensors_drop(
 
     sensor._schedule_retry_update = _schedule_retry  # type: ignore[method-assign]
 
+    writes = {"count": 0}
+
+    def _write_state():
+        writes["count"] += 1
+
+    sensor.async_write_ha_state = _write_state  # type: ignore[method-assign]
+
     await sensor.async_update()
 
-    assert calls["retry"] == 1
+    assert calls["retry"] == 0
     assert sensor.state == "Previsione precedente valida"
+    assert writes["count"] == 1
+    assert sensor._attributes["last_update_status"] == "waiting_required_sensors"
 
 
 @pytest.mark.asyncio
@@ -268,3 +277,31 @@ async def test_async_update_exception_continues_waiting_attempts(
     assert sensor._attributes["startup_block_reason"] == "update_exception"
     assert sensor._attributes["update_error_count"] == 1
     assert "forced update error" in sensor._attributes["last_update_error"]
+
+
+@pytest.mark.asyncio
+async def test_async_update_exception_after_startup_does_not_fast_retry(
+    hass: HomeAssistant,
+) -> None:
+    """After startup, unexpected errors should not trigger 10-second retry storms."""
+    sensor = Zambretti(hass, _make_entry())
+    sensor._attributes["fully_started"] = True
+    sensor._set_state("Previsione precedente valida")
+
+    async def _boom():
+        raise RuntimeError("forced update error")
+
+    sensor._async_update_internal = _boom  # type: ignore[method-assign]
+
+    calls = {"retry": 0}
+
+    def _schedule_retry():
+        calls["retry"] += 1
+
+    sensor._schedule_retry_update = _schedule_retry  # type: ignore[method-assign]
+
+    await sensor.async_update()
+
+    assert calls["retry"] == 0
+    assert sensor._attributes["startup_block_reason"] == "update_exception"
+    assert sensor._attributes["update_error_count"] == 1

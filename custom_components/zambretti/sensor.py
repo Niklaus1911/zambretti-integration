@@ -321,6 +321,8 @@ class Zambretti(SensorEntity):
             "startup_block_reason": None,
             "last_update_error": None,
             "update_error_count": 0,
+            "last_attempted_update": None,
+            "last_update_status": None,
             # debug data
             "dbg_len_state": None,
         }
@@ -399,6 +401,7 @@ class Zambretti(SensorEntity):
             )
             self._attributes["last_update_error"] = str(err)
             self._attributes["startup_block_reason"] = "update_exception"
+            self._attributes["last_update_status"] = "error"
 
             _LOGGER.exception(
                 "❌ Unexpected error during Zambretti update for %s",
@@ -424,8 +427,10 @@ class Zambretti(SensorEntity):
                     "Entity not yet registered; skipping async_write_ha_state()."
                 )
 
-            # Ensure next retry is always scheduled after unexpected failures.
-            self._schedule_retry_update()
+            # Fast retry is only useful during startup. Once fully started,
+            # rely on the normal configured interval to avoid retry storms.
+            if not self._attributes.get("fully_started"):
+                self._schedule_retry_update()
         finally:
             self._update_in_progress = False
 
@@ -433,6 +438,10 @@ class Zambretti(SensorEntity):
         """Internal update implementation."""
 
         t0_total = time.perf_counter()
+        self._attributes["last_attempted_update"] = dt_util.as_local(
+            dt_util.utcnow()
+        ).strftime("%H:%M")
+        self._attributes["last_update_status"] = "running"
 
         _LOGGER.debug("✅ entering async_update.")
 
@@ -469,6 +478,7 @@ class Zambretti(SensorEntity):
                 )
                 self._attributes["sensor_gate_warnings"] = list(invalid_sensors)
                 self._attributes["startup_block_reason"] = "required_sensors_unavailable"
+                self._attributes["last_update_status"] = "waiting_required_sensors"
                 self.counter += 1
                 self._set_state(
                     f"Zambretti in attesa dei sensori ... tentativo {self.counter}",
@@ -542,7 +552,21 @@ class Zambretti(SensorEntity):
                 )
                 self._attributes["sensor_gate_warnings"] = unresolved
                 self._attributes["startup_block_reason"] = "required_sensors_unavailable"
-                self._schedule_retry_update()
+                self._attributes["last_update_status"] = "waiting_required_sensors"
+
+                # Retries triggered via async_update() do not auto-publish state,
+                # so explicitly publish metadata updates to avoid stale UI.
+                try:
+                    self.async_write_ha_state()
+                except NoEntitySpecifiedError:
+                    _LOGGER.debug(
+                        "Entity not yet registered; skipping async_write_ha_state()."
+                    )
+
+                # After startup, do not run 10s retries for temporary gaps;
+                # next normal scheduled update will handle recovery.
+                if not self._attributes.get("fully_started"):
+                    self._schedule_retry_update()
                 return
 
             _LOGGER.debug(
@@ -551,6 +575,7 @@ class Zambretti(SensorEntity):
             )
             self._attributes["sensor_gate_warnings"] = list(unresolved)
             self._attributes["startup_block_reason"] = "required_sensors_unavailable"
+            self._attributes["last_update_status"] = "waiting_required_sensors"
             self.counter += 1
             self._set_state(
                 f"Zambretti in attesa dei sensori ... tentativo {self.counter}",
@@ -679,6 +704,7 @@ class Zambretti(SensorEntity):
                 "coordinate non disponibili (device tracker/HA config)"
             ]
             self._attributes["startup_block_reason"] = "coordinates_unavailable"
+            self._attributes["last_update_status"] = "waiting_coordinates"
             self.counter += 1
             self._set_state(
                 f"Zambretti in attesa dei sensori ... tentativo {self.counter}",
@@ -705,7 +731,8 @@ class Zambretti(SensorEntity):
                     t_publish_ms,
                 )
 
-            self._schedule_retry_update()
+            if not self._attributes.get("fully_started"):
+                self._schedule_retry_update()
             return
 
         self._attributes["sensor_latitude"] = latitude
@@ -1038,6 +1065,8 @@ class Zambretti(SensorEntity):
                 "alert": alert_desc(alert_level),
                 "last_updated": last_updated_str,
                 "fully_started": True,
+                "last_update_status": "ok",
+                "last_update_error": None,
                 "dbg_len_state": len(self._state),
             }
         )
