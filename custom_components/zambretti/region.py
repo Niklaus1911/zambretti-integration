@@ -4,6 +4,21 @@ from .dictionaries import REGIONS
 
 _LOGGER = logging.getLogger(__name__)
 
+REGION_LABELS_IT = {
+    "azores": "Azzorre",
+    "british isles": "Isole Britanniche",
+    "western europe coast": "Costa Europa Occidentale",
+    "north sea baltic": "Mare del Nord e Baltico",
+    "mediterranean nw": "Mediterraneo Nord-Ovest",
+    "mediterranean sw": "Mediterraneo Sud-Ovest",
+    "mediterranean ne": "Mediterraneo Nord-Est",
+    "mediterranean se": "Mediterraneo Sud-Est",
+    "caribbean": "Caraibi",
+    "american east coast": "Costa Est Americana",
+    "north atlantic": "Atlantico del Nord",
+    "unknown": "Sconosciuto",
+}
+
 
 def determine_region(lat, lon):
     """Determine which region a location falls into and return the region name & URL."""
@@ -14,12 +29,13 @@ def determine_region(lat, lon):
     for region, values in REGIONS.items():
         lat_min, lat_max, lon_min, lon_max, url = values  # ✅ Correct unpacking
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-            region_name = region.replace("_", " ")
-            if region_name:
-                region_name = region_name[0].upper() + region_name[1:]
+            region_name_raw = region.replace("_", " ")
+            region_name = REGION_LABELS_IT.get(
+                region_name_raw.lower(), region_name_raw.title()
+            )
             _LOGGER.debug(
                 f"✅ Location ({lat}, {lon}) identified as {region}, url {url}."
             )
             return region, region_name, url
     _LOGGER.debug(f"✅ Location ({lat}, {lon}) no region.")
-    return "unknown", "unknown", "none"
+    return "unknown", "Sconosciuto", "none"

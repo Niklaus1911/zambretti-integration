@@ -146,7 +146,7 @@ def determine_wind_direction(wind_direction, pressure_trend):
     """Determines the future wind direction based on current wind direction and pressure trend."""
 
     _LOGGER.debug(
-        f"🔄 Estimating wind direction shift from {wind_direction} with trend: {pressure_trend}"
+        f"🔄 Stima variazione direzione vento da {wind_direction} con trend {pressure_trend}"
     )
 
     # Define the wind direction order in a 16-point compass rose
@@ -210,7 +210,7 @@ def determine_wind_direction(wind_direction, pressure_trend):
 
     # Check if wind_direction is valid
     if wind_direction not in compass_directions:
-        return "Invalid wind direction"
+        return "Direzione vento non valida"
 
     # **Determine wind change type based on pressure trend**
     wind_change = "steady"
@@ -230,14 +230,20 @@ def determine_wind_direction(wind_direction, pressure_trend):
     # **Determine new wind direction, construct estimated sind direction text**
     if wind_change == "veering":
         future_direction_cardinal = veering_map[wind_direction]
-        estimated_wind_direction = f"{wind_direction} {wind_change} towards {future_direction_cardinal} {wind_change_speed}".strip()
+        speed_txt = " rapidamente" if wind_change_speed == "fast" else ""
+        estimated_wind_direction = (
+            f"{wind_direction} ruota in senso orario verso {future_direction_cardinal}{speed_txt}"
+        )
     elif wind_change == "backing":
         future_direction_cardinal = backing_map[wind_direction]
-        estimated_wind_direction = f"{wind_direction} {wind_change} towards {future_direction_cardinal} {wind_change_speed}".strip()
+        speed_txt = " rapidamente" if wind_change_speed == "fast" else ""
+        estimated_wind_direction = (
+            f"{wind_direction} ruota in senso antiorario verso {future_direction_cardinal}{speed_txt}"
+        )
     else:
         future_direction_cardinal = wind_direction  # No change
-        estimated_wind_direction = f"{wind_direction} {wind_change}".strip()
+        estimated_wind_direction = f"{wind_direction} stabile"
 
-    _LOGGER.debug(f"✅ Estimated wind change: {estimated_wind_direction}")
+    _LOGGER.debug(f"✅ Variazione vento stimata: {estimated_wind_direction}")
 
     return estimated_wind_direction

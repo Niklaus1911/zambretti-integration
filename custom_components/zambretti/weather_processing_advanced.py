@@ -12,19 +12,34 @@ from .helpers import safe_float
 _LOGGER = logging.getLogger(__name__)
 # _LOGGER.setLevel(logging.DEBUG)  # Or use logging.INFO for less verbosity
 
+MONTH_ABBR_IT = {
+    1: "Gen",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr",
+    5: "Mag",
+    6: "Giu",
+    7: "Lug",
+    8: "Ago",
+    9: "Set",
+    10: "Ott",
+    11: "Nov",
+    12: "Dic",
+}
+
 
 async def generate_pressure_forecast_advanced(
-    hass, entity_id, current_pressure, region, short=False
+    hass, entity_id, current_pressure, region, short=False, region_name=None
 ):
     # Monthly averages (should be defined outside function ideally)
     region_normals = MONTHLY_NORMALS_BY_REGION.get(region)
 
     if not region_normals:
-        return f"❌ Region '{region}' not found in pressure normals."
+        return f"❌ Regione '{region}' non trovata nelle norme di pressione."
 
     # Get month here, no pass as variable
     month = datetime.now().month
-    month_name = calendar.month_abbr[month]  # 'Apr'
+    month_name = MONTH_ABBR_IT.get(month, calendar.month_abbr[month])
 
     # Get normal pressure for this month and region
     normal = region_normals.get(month, 1015)
@@ -32,15 +47,15 @@ async def generate_pressure_forecast_advanced(
 
     # Classify anomaly
     if anomaly > 5:
-        pressure_context = "Unusually high — very stable"
+        pressure_context = "Pressione insolitamente alta - situazione molto stabile"
     elif anomaly > 2:
-        pressure_context = "Slightly above average — settled"
+        pressure_context = "Leggermente sopra la media - tendenza stabile"
     elif anomaly > -2:
-        pressure_context = "Near seasonal average — normal variability"
+        pressure_context = "Vicina alla media stagionale - variabilita normale"
     elif anomaly > -5:
-        pressure_context = "Below average — increasing instability"
+        pressure_context = "Sotto la media - instabilita in aumento"
     else:
-        pressure_context = "Unusually low — stormy pattern likely"
+        pressure_context = "Insolitamente bassa - probabile fase perturbata"
 
     # Get pressure trends in hPa/hr
     trend_3h = await get_trend(hass, entity_id, 3)
@@ -50,19 +65,19 @@ async def generate_pressure_forecast_advanced(
     # Trend classification
     def classify_trend(trend):
         if trend > 1.0:
-            return "↑↑↑ (rising rapidly)"
+            return "↑↑↑ (aumento rapido)"
         elif trend > 0.5:
-            return "↑↑ (rising fast)"
+            return "↑↑ (aumento deciso)"
         elif trend > 0.1:
-            return "↑ (rising)"
+            return "↑ (in aumento)"
         elif trend > -0.1:
-            return "→ (steady)"
+            return "→ (stabile)"
         elif trend > -0.5:
-            return "↓ (falling)"
+            return "↓ (in calo)"
         elif trend > -1.0:
-            return "↓↓ (falling fast)"
+            return "↓↓ (calo rapido)"
         else:
-            return "⬇⬇⬇ (plummeting)"
+            return "⬇⬇⬇ (in crollo)"
 
     trend_labels = {
         "3h": classify_trend(trend_3h),
@@ -72,52 +87,48 @@ async def generate_pressure_forecast_advanced(
 
     # Forecast summary & warning level
     if trend_3h < -1.0:
-        trend_summary = (
-            "Pressure is plummeting — very likely a storm or squall incoming."
-        )
+        trend_summary = "La pressione e in crollo - molto probabile l'arrivo di tempesta o groppo."
         warning_level = 5
     elif trend_3h < -0.5 and trend_6h < -0.5 and trend_12h < -0.5:
-        trend_summary = (
-            "Consistent strong fall — stormy or worsening weather is very likely."
-        )
+        trend_summary = "Calo forte e costante - molto probabile meteo perturbato o in peggioramento."
         warning_level = 4
     elif trend_3h > 0.5 and trend_6h > 0.5 and trend_12h > 0.5:
-        trend_summary = "Strong and consistent rise — improving and settled weather."
+        trend_summary = "Aumento forte e costante - miglioramento e tempo stabile."
         warning_level = 1
     elif trend_3h < 0 and trend_6h > 0 and trend_12h > 0:
-        trend_summary = "Short-term drop in a rising trend — weather likely stabilizing after a dip."
+        trend_summary = "Calo di breve periodo in un trend in aumento - possibile stabilizzazione dopo una flessione."
         warning_level = 2
     elif trend_3h > 0 and trend_6h < 0 and trend_12h < 0:
-        trend_summary = (
-            "Short-term rise in a falling pattern — possible temporary improvement."
-        )
+        trend_summary = "Rialzo di breve periodo in un trend in calo - possibile miglioramento temporaneo."
         warning_level = 3
     elif -0.1 < trend_3h < 0.1 and -0.1 < trend_6h < 0.1 and -0.1 < trend_12h < 0.1:
-        trend_summary = "Pressure is steady across all windows — stable conditions."
+        trend_summary = "Pressione stabile su tutte le finestre - condizioni stabili."
         warning_level = 2 if anomaly < -2 else 1
     else:
-        trend_summary = "Mixed pressure trends — potential instability or transition."
+        trend_summary = "Trend di pressione misti - possibile instabilita o fase di transizione."
         warning_level = 3 if anomaly < -2 else 2
 
     if short:
         # Short summary, under 255 characters
         return (
-            f"{current_pressure:.1f} hPa ({anomaly:+.1f} vs norm) — "
-            f"{trend_labels['3h']}/{trend_labels['6h']}/{trend_labels['12h']} — "
-            f"{trend_summary} [Level {warning_level}/5]"
+            f"{current_pressure:.1f} hPa ({anomaly:+.1f} rispetto alla norma) - "
+            f"{trend_labels['3h']}/{trend_labels['6h']}/{trend_labels['12h']} - "
+            f"{trend_summary} [Livello {warning_level}/5]"
         )[:255]
+
+    display_region = region_name or region.replace("_", " ").title()
 
     # Full forecast
     # Compose result
     forecast = (
-        f"🧭 Current pressure: {current_pressure:.1f} hPa\n"
-        f"📊 Pressure vs {region.title()} {month_name} normal ({normal} hPa): {anomaly:+.1f} hPa\n"
-        f"🌀 Pressure context: {pressure_context}\n\n"
-        f"📉 3h trend: {trend_labels['3h']} ({trend_3h:+.2f} hPa/hr)\n"
-        f"📉 6h trend: {trend_labels['6h']} ({trend_6h:+.2f} hPa/hr)\n"
-        f"📉 12h trend: {trend_labels['12h']} ({trend_12h:+.2f} hPa/hr)\n\n"
-        f"🗺️ Forecast: {trend_summary}\n"
-        f"⚠️ Warning Level: {warning_level}/5"
+        f"🧭 Pressione attuale: {current_pressure:.1f} hPa\n"
+        f"📊 Pressione vs norma {display_region} {month_name} ({normal} hPa): {anomaly:+.1f} hPa\n"
+        f"🌀 Contesto pressione: {pressure_context}\n\n"
+        f"📉 Trend 3h: {trend_labels['3h']} ({trend_3h:+.2f} hPa/h)\n"
+        f"📉 Trend 6h: {trend_labels['6h']} ({trend_6h:+.2f} hPa/h)\n"
+        f"📉 Trend 12h: {trend_labels['12h']} ({trend_12h:+.2f} hPa/h)\n\n"
+        f"🗺️ Previsione: {trend_summary}\n"
+        f"⚠️ Livello di allerta: {warning_level}/5"
     )
 
     return forecast

@@ -1,7 +1,7 @@
 {
   "domain": "zambretti",
   "name": "Zambretti Weather Forecast",
-  "version": "1.25.3",
+  "version": "1.25.4",
   "config_flow": true,
   "documentation": "https://columbusgoes.digital/zambretti/index.html",
   "dependencies": [],

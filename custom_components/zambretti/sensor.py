@@ -578,9 +578,18 @@ class Zambretti(SensorEntity):
         _LOGGER.debug(
             f"SENSOR: Straight-line slope: {slope}, Avg deviation: {method_deviation}"
         )
+        pressure_trend_text = {
+            "rising_fast": "Pressione in rapido aumento",
+            "rising": "Pressione in aumento",
+            "steady": "Pressione stabile",
+            "falling": "Pressione in calo",
+            "falling_fast": "Pressione in rapido calo",
+            "plummeting": "Pressione in crollo",
+        }.get(trend, "Pressione")
         self._attributes.update(
             {
                 "pressure_trend": trend,
+                "pressure_trend_text": pressure_trend_text,
                 "pressure_move_per_hour": slope,
                 "pressure analysis": p_analysis,
                 "hist_pressure": hist_pressure,
@@ -683,7 +692,7 @@ class Zambretti(SensorEntity):
                 "low_wind_trend_class": low.wind_trend,
                 "low_wind_trend_delta_kn": low.wind_delta_kn
                 if low.wind_delta_kn is not None
-                else "Unknown",
+                else "Sconosciuto",
                 "low_estimate_confidence": low.confidence,
                 "low_weather_trend": low.weather_trend,
                 "low_relative_position": low.low_relative_position,
@@ -694,10 +703,10 @@ class Zambretti(SensorEntity):
                 "low_wind_rotation_likely": low.wind_rotation_likely,
                 "low_wind_dir_delta_deg": low.wind_dir_delta_deg
                 if low.wind_dir_delta_deg is not None
-                else "Unknown",
+                else "Sconosciuto",
                 "low_frontal_zone": low.frontal_zone
                 if low.frontal_zone is not None
-                else "Unknown",
+                else "Sconosciuto",
                 "low_anchoring_risk": low.anchoring_risk,
                 "low_summary": low.summary,
             }
@@ -744,7 +753,12 @@ class Zambretti(SensorEntity):
         # Generate advanced forecast, based on development over 3hr, 6hr and 12hr
         # -------------------------------
         forecast_advanced = await generate_pressure_forecast_advanced(
-            self.hass, self.atmospheric_pressure_sensor, pressure, region, short=False
+            self.hass,
+            self.atmospheric_pressure_sensor,
+            pressure,
+            region,
+            short=False,
+            region_name=region_name,
         )
         self._attributes.update(
             {
@@ -785,10 +799,10 @@ class Zambretti(SensorEntity):
         # We now have everythong to make up a full forecast
         # -------------------------------
         estimated_wind_speeds = f"{int(safe_float(estimated_wind_speed) * 0.8)}-{int(safe_float(estimated_wind_speed) * 1.2)}"
-        wind_forecast = (
-            f"Wind estimate {estimated_wind_speeds}kn, {wind_direction_change}"
+        wind_forecast = f"Stima vento {estimated_wind_speeds}kn, {wind_direction_change}"
+        full_forecast = (
+            f"{p_analysis}. {forecast}. {wind_forecast}. {fog_chance} al momento. {temp_effect}."
         )
-        full_forecast = f"{p_analysis}. {forecast}. {wind_forecast}. {fog_chance} right now. {temp_effect}."
 
         self._state = full_forecast
         self._attributes.update(
