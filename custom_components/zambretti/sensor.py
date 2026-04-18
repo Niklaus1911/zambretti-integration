@@ -43,6 +43,7 @@ from .wind_systems import wind_systems
 _LOGGER = logging.getLogger(__name__)
 SERVICE_FORCE_UPDATE = "force_update"
 RETRY_DELAY_SECONDS = 10
+MAX_HA_STATE_LEN = 255
 
 
 async def async_setup_entry(
@@ -158,9 +159,21 @@ class Zambretti(SensorEntity):
 
     should_poll = False  # Since we are manually scheduling updates
 
+    def _set_state(self, value, fallback="Previsione in aggiornamento"):
+        """Set a Home Assistant-safe entity state.
+
+        HA sensor states must be <= 255 characters and non-empty.
+        """
+        text = str(value).strip() if value is not None else ""
+        if text.lower() in ("", "none", "unknown", "unavailable"):
+            text = fallback
+        if len(text) > MAX_HA_STATE_LEN:
+            text = text[: MAX_HA_STATE_LEN - 3].rstrip(" ,.;") + "..."
+        self._state = text
+
     def __init__(self, hass, entry):
         self.hass = hass
-        self._state = "Inizializzazione"
+        self._set_state("Inizializzazione", fallback="Inizializzazione")
         self._retry_unsub: Callable[[], None] | None = None
         self._update_in_progress = False
         self.config_entry = entry  # ✅ Store config_entry for access later
@@ -216,6 +229,7 @@ class Zambretti(SensorEntity):
             "estimated_wind_speed": None,
             "estimated_max_wind_speed": None,
             "wind_forecast": None,
+            "forecast_full": None,
             "wind_direction_change": None,
             # ⬇️ Atmospheric Pressure
             "normal_pressure": None,
@@ -376,8 +390,9 @@ class Zambretti(SensorEntity):
                 "; ".join(invalid_sensors),
             )
             self.counter += 1
-            self._state = (
-                f"Zambretti in attesa dei sensori ... tentativo {self.counter}"
+            self._set_state(
+                f"Zambretti in attesa dei sensori ... tentativo {self.counter}",
+                fallback="Zambretti in attesa dei sensori",
             )
             # Push the updated state to HA immediately
             t_pub0 = time.perf_counter()
@@ -504,8 +519,9 @@ class Zambretti(SensorEntity):
                 "⚠️ Coordinates not available yet. Scheduling re-check in 10 seconds."
             )
             self.counter += 1
-            self._state = (
-                f"Zambretti in attesa dei sensori ... tentativo {self.counter}"
+            self._set_state(
+                f"Zambretti in attesa dei sensori ... tentativo {self.counter}",
+                fallback="Zambretti in attesa dei sensori",
             )
             t_pub0 = time.perf_counter()
             try:
@@ -804,12 +820,13 @@ class Zambretti(SensorEntity):
             f"{p_analysis}. {forecast}. {wind_forecast}. {fog_chance} al momento. {temp_effect}."
         )
 
-        self._state = full_forecast
+        self._set_state(full_forecast, fallback="Previsione disponibile")
         self._attributes.update(
             {
                 "estimated_wind_speed": estimated_wind_speed,
                 "estimated_max_wind_speed": estimated_max_wind_speed,
                 "wind_forecast": wind_forecast,
+                "forecast_full": full_forecast,
             }
         )
 
