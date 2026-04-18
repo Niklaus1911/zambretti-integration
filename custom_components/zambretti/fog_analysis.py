@@ -1,4 +1,4 @@
-"""Analyze humidity an temperature, establish chance of fog"""
+"""Analyze humidity and temperature, establish chance of fog"""
 
 import logging
 import math
@@ -25,7 +25,7 @@ def determine_fog_chance(
     # Validate input (humidity and temperature must be valid)
     if humidity == 0 or temperature is None:
         _LOGGER.debug(f"Invalid sensors. t={temperature}, h={humidity}, w={wind_speed}")
-        return "No valid sensor data.", 0, 0, 0, 0
+        return "Dati sensore non validi.", 0, 0, 0, 0
 
     alert_level = 0
 
@@ -35,7 +35,7 @@ def determine_fog_chance(
     )
 
     if humidity < 20:
-        return "No chance of fog. Air is too dry.", 0, 0, 0, 0  # No fog possible.
+        return "Nessuna possibilita di nebbia. Aria troppo secca.", 0, 0, 0, 0
 
     # Calculate dew point (Magnus-Tetens formula)
     alpha = (17.27 * temperature) / (237.7 + temperature) + math.log(humidity / 100)
@@ -90,15 +90,15 @@ def determine_fog_chance(
 
     # **🔹 Adjust Fog Description Based on Probability**
     if fog_probability > 90:
-        fog_likelihood = "Fog is very likely"
+        fog_likelihood = "Nebbia molto probabile"
     elif fog_probability > 70:
-        fog_likelihood = "Fog is possible"
+        fog_likelihood = "Nebbia possibile"
     elif fog_probability > 40:
-        fog_likelihood = "Fog is unlikely"
+        fog_likelihood = "Nebbia poco probabile"
     elif fog_probability > 10:
-        fog_likelihood = "Fog is very unlikely"
+        fog_likelihood = "Nebbia molto improbabile"
     else:
-        fog_likelihood = "No fog expected"
+        fog_likelihood = "Nessuna nebbia prevista"
 
     fog_dec_probability = round(fog_probability / 10) * 10
     #    fog_likelihood += f"({fog_dec_probability}% chance, {diff_txt})."
@@ -106,11 +106,15 @@ def determine_fog_chance(
     # **🔹 Additional Behavior Based on Wind**
     if fog_probability > 90:
         fog_likelihood += (
-            ", trong winds soon clear it" if wind_speed > 15 else " It may persist"
+            ", venti forti la dissolveranno presto"
+            if wind_speed > 15
+            else " Potrebbe persistere"
         )
         alert_level = 3
     elif fog_probability > 60:
-        fog_likelihood += ", ind reduces fog" if wind_speed > 10 else " It may persist"
+        fog_likelihood += (
+            ", il vento riduce la nebbia" if wind_speed > 10 else " Potrebbe persistere"
+        )
 
     # **🔹 Improved Logging**
     _LOGGER.debug(

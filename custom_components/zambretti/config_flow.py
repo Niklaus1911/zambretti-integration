@@ -23,20 +23,20 @@ class ZambrettiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(
                     "wind_direction_sensor",
-                    description={"suggested_value": "Sensor for wind direction (360°)"},
+                    description={"suggested_value": "Sensore direzione vento (360 gradi)"},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
                 vol.Required(
                     "wind_speed_sensor_knots",
-                    description={"suggested_value": "Sensor for wind speed (knots)"},
+                    description={"suggested_value": "Sensore velocita vento (nodi)"},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
                 vol.Required(
                     "atmospheric_pressure_sensor",
                     description={
-                        "suggested_value": "=Sensor for outside pressure (hPa)"
+                        "suggested_value": "Sensore pressione esterna (hPa)"
                     },
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
@@ -44,21 +44,21 @@ class ZambrettiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     "temperature_sensor",
                     description={
-                        "suggested_value": "Sensor for outside temperature (°C)"
+                        "suggested_value": "Sensore temperatura esterna (gradi C)"
                     },
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
                 vol.Required(
                     "humidity_sensor",
-                    description={"suggested_value": "Sensor for outside humidity (%)"},
+                    description={"suggested_value": "Sensore umidita esterna (%)"},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
                 vol.Required(
                     "device_tracker_home",
                     description={
-                        "suggested_value": "Device tracker for your location (usually home location)"
+                        "suggested_value": "Device tracker per la tua posizione (di solito casa)"
                     },
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="device_tracker")
@@ -84,11 +84,17 @@ class ZambrettiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            "frequent_dense_fog",  # Highest fog likelihood
-                            "fog_prone",  # Often foggy, but not extreme
-                            "normal",  # Default setting
-                            "rare_fog",  # Occasionally foggy
-                            "hardly_ever_fog",  # Very rare fog
+                            {
+                                "value": "frequent_dense_fog",
+                                "label": "Nebbia fitta frequente",
+                            },
+                            {"value": "fog_prone", "label": "Zona soggetta a nebbia"},
+                            {"value": "normal", "label": "Normale"},
+                            {"value": "rare_fog", "label": "Nebbia rara"},
+                            {
+                                "value": "hardly_ever_fog",
+                                "label": "Quasi mai nebbia",
+                            },
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
@@ -101,7 +107,7 @@ class ZambrettiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "info": "Please select the sensors for wind, pressure, temperature, humidity, and GPS."
+                "info": "Seleziona i sensori per vento, pressione, temperatura, umidita e GPS."
             },
         )
 

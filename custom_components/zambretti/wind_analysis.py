@@ -32,7 +32,7 @@ def wind_degrees_to_text(degrees):
         "N-NW",
     ]
     if degrees is None:
-        return "Unknown"
+        return "Sconosciuto"
     index = round(degrees / 22.5) % 16
     return directions[index]
 
@@ -87,7 +87,7 @@ async def calculate_most_frequent_wind_direction(hass, entity_id):
             if wind_value is not None:
                 return wind_degrees_to_text(wind_value), 1
         return (
-            "Error: Wind direction not available.",
+            "Errore: direzione vento non disponibile.",
             0,
         )  # If even the current state is missing
 

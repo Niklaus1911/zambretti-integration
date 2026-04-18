@@ -103,11 +103,17 @@ class ZambrettiOptionsFlowHandler(config_entries.OptionsFlow):
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            "frequent_dense_fog",
-                            "fog_prone",
-                            "normal",
-                            "rare_fog",
-                            "hardly_ever_fog",
+                            {
+                                "value": "frequent_dense_fog",
+                                "label": "Nebbia fitta frequente",
+                            },
+                            {"value": "fog_prone", "label": "Zona soggetta a nebbia"},
+                            {"value": "normal", "label": "Normale"},
+                            {"value": "rare_fog", "label": "Nebbia rara"},
+                            {
+                                "value": "hardly_ever_fog",
+                                "label": "Quasi mai nebbia",
+                            },
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
@@ -120,9 +126,9 @@ class ZambrettiOptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=options_schema,
             description_placeholders={
                 "general_description": (
-                    "Configure your sensor entities for Zambretti Forecast. "
-                    "Make sure the selected sensors are active and properly configured in Home Assistant. "
-                    "The numerical values below are used to control update intervals and data history."
+                    "Configura le entita sensore per la previsione Zambretti. "
+                    "Verifica che i sensori selezionati siano attivi e configurati correttamente in Home Assistant. "
+                    "I valori numerici sotto servono a controllare intervallo aggiornamento e storico dati."
                 )
             },
         )

@@ -31,19 +31,19 @@ async def determine_temperature_effect(hass, entity_id):
 
     if not history_data or entity_id not in history_data:
         _LOGGER.debug(f"⚠️ No history for {entity_id}.")
-        return "Learning temperature trends", 0, 1, 0  # Default: No alert
+        return "Apprendimento trend temperatura", 0, 1, 0
 
     # If only one reading, return a learning state
     if len(history_data[entity_id]) == 1:
         earliest_available_temp = safe_float(history_data[entity_id][0].state)
-        return "Learning temperature trends", 0, 1, 0
+        return "Apprendimento trend temperatura", 0, 1, 0
 
     # Determine oldest and newest temperature readings
     try:
         earliest_available_temp = safe_float(history_data[entity_id][0].state)
         latest_temp = safe_float(history_data[entity_id][-1].state)
     except ValueError:
-        return "Invalid temperature data", 0, len(history_data[entity_id]), 0
+        return "Dati temperatura non validi", 0, len(history_data[entity_id]), 0
 
     temp_change = latest_temp - earliest_available_temp
 
@@ -98,22 +98,22 @@ async def determine_temperature_effect(hass, entity_id):
     alert_level = 0
     if temp_change >= 10:
         temp_effect = (
-            "Rapid significant warming; potential heatwave, strong thermal winds"
+            "Riscaldamento rapido e importante; possibile ondata di calore, venti termici forti"
         )
         alert_level = 3
     elif temp_change >= 5:
         temp_effect = (
-            "Noticeable temperature rise ; warm air front moving in, wind increase"
+            "Aumento temperatura evidente; fronte caldo in arrivo, vento in aumento"
         )
     elif temp_change <= -10:
         temp_effect = (
-            "Sharp temperature drop; cold front, strong gusty winds and storms"
+            "Calo termico marcato; fronte freddo, forti raffiche e temporali"
         )
         alert_level = 5
     elif temp_change <= -5:
-        temp_effect = "Rapid significant cooling; unstable weather, wind increase"
+        temp_effect = "Raffreddamento rapido e importante; meteo instabile, vento in aumento"
         alert_level = 3
     else:
-        temp_effect = "No temperature alerts"
+        temp_effect = "Nessuna allerta temperatura"
 
     return temp_effect, temp_change, len(history_data[entity_id]), alert_level

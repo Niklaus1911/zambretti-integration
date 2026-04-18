@@ -160,7 +160,7 @@ class Zambretti(SensorEntity):
 
     def __init__(self, hass, entry):
         self.hass = hass
-        self._state = "Initializing"
+        self._state = "Inizializzazione"
         self._retry_unsub: Callable[[], None] | None = None
         self._update_in_progress = False
         self.config_entry = entry  # ✅ Store config_entry for access later
@@ -178,7 +178,7 @@ class Zambretti(SensorEntity):
         # ✅ Unique ID from HA, stable even if sensors are updated
         self._attr_unique_id = f"{DOMAIN}_{self.entry_id}"
 
-        # ✅ Ensure a name is set, or HA may discard it
+        # Keep default entity name stable for backward-compatible entity_id generation.
         self._attr_name = "Zambretti Forecast"
         _LOGGER.debug(
             f"__init__✅ Initialized Zambretti sensor with unique_id: {self._attr_unique_id}"
@@ -376,7 +376,9 @@ class Zambretti(SensorEntity):
                 "; ".join(invalid_sensors),
             )
             self.counter += 1
-            self._state = f"Zambretti waiting for sensors ... attempt {self.counter}"
+            self._state = (
+                f"Zambretti in attesa dei sensori ... tentativo {self.counter}"
+            )
             # Push the updated state to HA immediately
             t_pub0 = time.perf_counter()
             try:
@@ -502,7 +504,9 @@ class Zambretti(SensorEntity):
                 "⚠️ Coordinates not available yet. Scheduling re-check in 10 seconds."
             )
             self.counter += 1
-            self._state = f"Zambretti waiting for sensors ... attempt {self.counter}"
+            self._state = (
+                f"Zambretti in attesa dei sensori ... tentativo {self.counter}"
+            )
             t_pub0 = time.perf_counter()
             try:
                 self.async_write_ha_state()

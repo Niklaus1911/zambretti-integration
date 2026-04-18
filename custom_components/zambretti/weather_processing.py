@@ -32,93 +32,93 @@ async def zambretti_forecast(
     forecast = ""
     if trend == "rising":
         if pressure > normal_pressure + 5:
-            forecast += "Clear(ish) skies, little to no rain, mild temperatures"
+            forecast += "Cieli abbastanza sereni, poca o nessuna pioggia, temperature miti"
             icon = ICON_MAPPING[0][0]
             alert_level = max(0, alert_level + temp_modifier)  # Reduce alert if cold
             estimated_wind_speed = max(5, current_wind_speed - 3)
         elif pressure > normal_pressure - 5:
-            forecast += "Stable, calm, and pleasant weather, possible light clouds"
+            forecast += "Meteo stabile, calmo e gradevole, possibili nubi leggere"
             icon = ICON_MAPPING[1][0]
             alert_level = max(0, alert_level + temp_modifier)
             estimated_wind_speed = max(5, current_wind_speed - 2)
         else:
-            forecast += "Improving conditions, clearing skies"
+            forecast += "Condizioni in miglioramento, schiarite in arrivo"
             icon = ICON_MAPPING[2][0]
             alert_level = max(0, alert_level + temp_modifier)
             estimated_wind_speed = max(10, current_wind_speed)
 
     elif trend == "steady":
         if pressure > normal_pressure + 5:
-            forecast += "Continued fair, calm and predictable weather"
+            forecast += "Continua il bel tempo, calmo e prevedibile"
             icon = ICON_MAPPING[0][0]
             alert_level = max(0, alert_level + temp_modifier)
             estimated_wind_speed = max(
                 5, current_wind_speed
             )  # 5-12 knots, light breeze
         elif pressure > normal_pressure - 5:
-            forecast += "Fair weather with occasional clouds"
+            forecast += "Bel tempo con nuvolosita occasionale"
             icon = ICON_MAPPING[1][0]
             alert_level = max(0, alert_level + temp_modifier)
             estimated_wind_speed = max(8, current_wind_speed)  # 8-15 knots, steady
         else:
-            forecast += "Changeable weather, gusty winds, possible rain later"
+            forecast += "Meteo variabile, raffiche di vento, possibile pioggia piu tardi"
             icon = ICON_MAPPING[3][0]
             alert_level = max(1, alert_level + temp_modifier)
             estimated_wind_speed = max(12, current_wind_speed + 3)  # 12-18 knots
 
     elif trend == "falling":
         if pressure > normal_pressure + 5:
-            forecast += "Possible deterioration, watch for winds"
+            forecast += "Possibile peggioramento, attenzione al vento"
             icon = ICON_MAPPING[2][0]
             alert_level = max(1, alert_level + temp_modifier)
             estimated_wind_speed = max(15, current_wind_speed + 5)
         elif pressure > normal_pressure - 5:
-            forecast += "Changeable weather, gusty winds, increasing cloud cover"
+            forecast += "Meteo variabile, raffiche di vento, nuvolosita in aumento"
             icon = ICON_MAPPING[4][0]
             alert_level = max(2, alert_level + temp_modifier)
             estimated_wind_speed = max(20, current_wind_speed + 8)
         else:
-            forecast += "Stormy conditions likely, heavy rain expected"
+            forecast += "Condizioni tempestose probabili, attese piogge intense"
             if temperature < 0:
-                forecast += " ❄️ Possible snow instead of rain"
+                forecast += " ❄️ Possibile neve al posto della pioggia"
             icon = ICON_MAPPING[5][0]
             alert_level = max(3, alert_level + temp_modifier)
             estimated_wind_speed = max(25, current_wind_speed + 12)
 
     elif trend == "falling_fast":
         if pressure > normal_pressure - 10:
-            forecast += "Windy, rain likely"
+            forecast += "Ventoso, pioggia probabile"
             icon = ICON_MAPPING[4][0]
             alert_level = max(3, alert_level + temp_modifier)
             estimated_wind_speed = max(25, current_wind_speed + 12)
         elif pressure > normal_pressure - 15:
-            forecast += "Strong winds, rain, possible squalls"
+            forecast += "Venti forti, pioggia, possibili groppi"
             if temperature < 0:
-                forecast += " ❄️ Snowstorm possible"
+                forecast += " ❄️ Possibile bufera di neve"
             icon = ICON_MAPPING[4][0]
             alert_level = max(4, alert_level + temp_modifier)
             estimated_wind_speed = max(30, current_wind_speed + 15)
         else:
-            forecast += "Very low pressure. Dangerous weather, high winds, big waves"
+            forecast += "Pressione molto bassa. Meteo pericoloso, venti forti, onde grandi"
             icon = ICON_MAPPING[6][0]
             alert_level = max(5, alert_level + temp_modifier)
             estimated_wind_speed = max(40, current_wind_speed + 25)
 
     elif trend == "plummeting":
         if pressure > normal_pressure - 10:
-            forecast += "Strong winds, thunderstorms, possible storm system"
+            forecast += "Venti forti, temporali, possibile sistema perturbato"
             if temperature < 0:
-                forecast += "Blizzard conditions possible."
+                forecast += " Possibili condizioni da bufera."
             icon = ICON_MAPPING[6][0]
             alert_level = max(4, alert_level + temp_modifier)
             estimated_wind_speed = max(30, current_wind_speed + 20)
         elif pressure > normal_pressure - 15:
-            forecast += "Low pressure. Major storm system, possible gale-force winds"
+            forecast += "Bassa pressione. Forte sistema perturbato, possibili venti da burrasca"
             icon = ICON_MAPPING[7][0]
             alert_level = max(5, alert_level + temp_modifier)
             estimated_wind_speed = max(40, current_wind_speed + 25)
         else:
-            forecast += "Very low pressure. Severe weather, hurricane/cyclone possible"
+            forecast += "Pressione molto bassa. Meteo severo, possibile uragano/ciclone"
             icon = ICON_MAPPING[7][0]
             alert_level = max(5, alert_level + temp_modifier)
             estimated_wind_speed = max(50, current_wind_speed + 30)

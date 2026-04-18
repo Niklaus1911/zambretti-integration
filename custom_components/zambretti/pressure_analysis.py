@@ -152,14 +152,21 @@ async def determine_pressure_trend(hass, entity_id, pressure_history_hours):
         trend = "plummeting"
 
     # Create the pressure forecast
-    d_trend = trend.replace("_", " ").title()
+    d_trend = {
+        "rising_fast": "Pressione in rapido aumento",
+        "rising": "Pressione in aumento",
+        "steady": "Pressione stabile",
+        "falling": "Pressione in calo",
+        "falling_fast": "Pressione in rapido calo",
+        "plummeting": "Pressione in crollo",
+    }.get(trend, "Pressione")
     plus_minus = "±"
     if round(slope, 1) > 0:
         plus_minus = "+"
     elif round(slope, 2) < 0:
         plus_minus = "-"
 
-    analysis = f"{d_trend} pressure, {plus_minus}{abs(round(slope, 1))}/hr"
+    analysis = f"{d_trend}, {plus_minus}{abs(round(slope, 1))}/h"
 
     return (
         trend,
