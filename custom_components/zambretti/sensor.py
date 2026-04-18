@@ -290,7 +290,6 @@ class Zambretti(SensorEntity):
             "low_distance_km_range": None,
             "low_wind_trend_class": None,
             "low_wind_trend_delta_kn": None,
-            "low_pressure_slope_hpa_per_hr": None,
             "low_estimate_confidence": None,
             "low_weather_trend": None,
             "low_time_to_impact": None,
@@ -850,7 +849,6 @@ class Zambretti(SensorEntity):
             wind_dir_history_minutes=120,
             pressure_history_hours=12,
             pressure_slope_window_hours=3,
-            pressure_slope_override_hpa_per_hr=slope,
             latitude=latitude,  # ✅ your live GPS latitude
         )
 
@@ -871,9 +869,6 @@ class Zambretti(SensorEntity):
                 "low_wind_trend_class": low.wind_trend,
                 "low_wind_trend_delta_kn": low.wind_delta_kn
                 if low.wind_delta_kn is not None
-                else "Sconosciuto",
-                "low_pressure_slope_hpa_per_hr": low.pressure_slope_hpa_per_hr
-                if low.pressure_slope_hpa_per_hr is not None
                 else "Sconosciuto",
                 "low_estimate_confidence": low.confidence,
                 "low_weather_trend": low.weather_trend,

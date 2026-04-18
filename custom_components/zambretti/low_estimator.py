@@ -909,7 +909,6 @@ async def async_estimate_low_properties(
     wind_dir_history_minutes: int = 120,
     pressure_history_hours: int = 12,
     pressure_slope_window_hours: int = 3,
-    pressure_slope_override_hpa_per_hr: float | None = None,
     latitude: float | None = None,
 ) -> LowEstimate:
     """
@@ -1001,8 +1000,8 @@ async def async_estimate_low_properties(
         if fv is not None:
             press_vals.append((st.last_updated, fv))
 
-    pslope = _safe_float(pressure_slope_override_hpa_per_hr)
-    if pslope is None and press_vals:
+    pslope = None
+    if press_vals:
         slope_start = now - timedelta(hours=pressure_slope_window_hours)
         window = [(t, v) for (t, v) in press_vals if t >= slope_start]
         if len(window) >= 2:
