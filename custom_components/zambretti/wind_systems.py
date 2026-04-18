@@ -18,9 +18,7 @@ def wind_systems(
     """Determine the most relevant wind system based on region, wind direction, and location."""
 
     _LOGGER.debug(f"WIND_SYSTEMS: {region}  {region_url}")
-    default_description = REGION_CATALOG.get(region, {}).get(
-        wind_direction, "No wind description available."
-    )
+    default_description = "Descrizione regionale disponibile nel link"
     default_url = f'<a href="{region_url}">{region_name}</a>'
     _LOGGER.debug(f"WIND_SYSTEMS: {default_url}")
 
@@ -41,7 +39,7 @@ def wind_systems(
 
     # ✅ Step 3: If no wind system found, return the default description
     if not wind_systems_for_region:
-        return f"No systems in region, so {default_description}", default_url
+        return f"Nessun sistema specifico per la regione, {default_description}", default_url
 
     # ✅ Step 4: Check which wind systems apply based on coordinates
     descriptions = []
@@ -60,7 +58,7 @@ def wind_systems(
             # Check if the coordinates fall within the wind system's bounds
             if lat_min <= latitude <= lat_max and lon_min <= longitude <= lon_max:
                 descriptions.append(
-                    f"{wind_system}: {system_desc}"
+                    f"{wind_system}: descrizione disponibile nel link"
                 )  # ✅ Valid wind system for this location
                 urls.append(f'<a href="{system_url}">{wind_system}</a>')
                 _LOGGER.debug(f'✅ Match: <a href="{system_url}">{wind_system}</a>')
