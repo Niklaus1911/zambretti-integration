@@ -226,10 +226,42 @@ def _combine_confidence(*parts: str) -> str:
 def _confidence_text(conf: str) -> str:
     """Map confidence token to a human-friendly phrase."""
     return {
-        "high": "high confidence",
-        "medium": "medium confidence",
-        "low": "low confidence",
+        "high": "confidenza alta",
+        "medium": "confidenza media",
+        "low": "confidenza bassa",
     }.get(conf, conf)
+
+
+def _translate_wind_outlook(outlook: str | None) -> str | None:
+    """Translate wind outlook sentence to Italian for user-facing summaries."""
+    if not outlook:
+        return None
+    return (
+        outlook.replace(
+            "Wind likely to increase as pressure continues to fall.",
+            "Vento probabilmente in aumento mentre la pressione continua a calare.",
+        )
+        .replace(
+            "Wind likely to increase further as pressure continues to fall.",
+            "Vento probabilmente in ulteriore aumento mentre la pressione continua a calare.",
+        )
+        .replace(
+            "Wind likely to be stable.",
+            "Vento probabilmente stabile.",
+        )
+        .replace(
+            "Wind likely to be almost stable.",
+            "Vento probabilmente quasi stabile.",
+        )
+        .replace(
+            "Wind likely to decrease as pressure continues to rise.",
+            "Vento probabilmente in diminuzione mentre la pressione continua a salire.",
+        )
+        .replace(
+            "Wind confusing, keep an eye out.",
+            "Segnale del vento ambiguo, monitorare con attenzione.",
+        )
+    )
 
 
 def build_low_summary(low: LowEstimate) -> str:
@@ -705,88 +737,132 @@ def estimate_low_properties(
     # Human-readable summary (used as attribute in HA)
     parts: list[str] = []
 
-    parts.append(f"Low to the {low_relative_position.lower()} ({low_deg:.0f}°), ")
-    if distance_class != "Unknown":
-        parts.append(f"distance {km_range}, {low_movement.lower()}.")
-    #        parts.append(f"distance {distance_class.lower()} ({km_range}), {low_movement.lower()}.")
-    else:
-        parts.append("Distance: unknown.")
+    position_it = {
+        "North": "nord",
+        "North-East": "nord-est",
+        "East": "est",
+        "South-East": "sud-est",
+        "South": "sud",
+        "South-West": "sud-ovest",
+        "West": "ovest",
+        "North-West": "nord-ovest",
+        "Unknown": "sconosciuta",
+    }
+    movement_it = {
+        "Approaching": "in avvicinamento",
+        "Passing": "in transito",
+        "Moving away": "in allontanamento",
+        "Unknown": "sconosciuto",
+    }
+    trend_it = {
+        "Stable/unknown": "stabile/sconosciuto",
+        "Decreased a lot": "diminuito molto",
+        "Decreased": "diminuito",
+        "Stable": "stabile",
+        "Increased": "aumentato",
+        "Increased a lot": "aumentato molto",
+    }
+    gust_it = {"Low": "bassa", "Medium": "media", "High": "alta"}
+    rotation_it = {
+        "No significant change": "nessun cambiamento significativo",
+        "Slight veering": "lieve rotazione in senso orario",
+        "Slight backing": "lieve rotazione in senso antiorario",
+        "Veering likely": "rotazione in senso orario probabile",
+        "Backing likely": "rotazione in senso antiorario probabile",
+        "Veering (observed)": "rotazione in senso orario osservata",
+        "Backing (observed)": "rotazione in senso antiorario osservata",
+        "Uncertain": "incerta",
+        "Unknown": "sconosciuta",
+    }
+    anchor_it = {"Safe": "Sicuro", "Caution": "Cautela", "Unsafe": "Non sicuro"}
 
-    #    if low_relative_position != "Unknown" or low_movement != "Unknown":
-    #        parts.append(f"Relative to you: {low_relative_position.lower()}, {low_movement.lower()}.")
+    pos_txt = position_it.get(low_relative_position, "sconosciuta")
+    mov_txt = movement_it.get(low_movement, "sconosciuto")
+    parts.append(f"Minimo a {pos_txt} ({low_deg:.0f}°), ")
+    if distance_class != "Unknown":
+        parts.append(f"distanza {km_range}, {mov_txt}.")
+    else:
+        parts.append("Distanza: sconosciuta.")
 
     # Main weather impact timing (human readable)
     if impact_window_status == "Passed":
         parts.append(
-            "Main weather from this system has passed, conditions are improving."
+            "La fase principale di questo sistema e gia passata, condizioni in miglioramento."
         )
     elif impact_window_status == "Now":
         parts.append(
-            "Main impact from this system is occurring now or is imminent, "
-            "expect the worst conditions in the next 1-2 hours."
+            "Impatto principale in corso o imminente; attese le condizioni peggiori nelle prossime 1-2 ore."
         )
     elif impact_window_status == "Future":
         # Distinguish near-term vs far-term using the existing time_to_impact_range
         if time_to_impact_range in ("< 3 hours", "3-6 hours", "6-12 hours"):
+            range_it = {
+                "< 3 hours": "meno di 3 ore",
+                "3-6 hours": "3-6 ore",
+                "6-12 hours": "6-12 ore",
+            }.get(time_to_impact_range, time_to_impact_range)
             parts.append(
-                f"Weather is deteriorating, main impact from this system is expected within {time_to_impact_range}. "
-                "Prepare for worsening conditions."
+                f"Meteo in peggioramento, impatto principale previsto entro {range_it}. Prepararsi a condizioni piu severe."
             )
         else:
             parts.append(
-                "A low pressure system is present but still far away. "
-                "No significant impact is expected in the next 12-24 hours."
+                "Sistema di bassa pressione presente ma ancora lontano. Nessun impatto rilevante atteso nelle prossime 12-24 ore."
             )
     else:
         parts.append(
-            "Weather situation is unclear. Signals are mixed; monitor pressure and wind trends closely."
+            "Situazione meteo non chiara: segnali misti, monitorare con attenzione pressione e vento."
         )
 
     # Pressure trend
     if pslope is not None:
         if abs(pslope) < 0.10:
-            parts.append("Pressure: roughly steady.")
+            parts.append("Pressione: quasi stabile.")
         elif pslope < 0:
-            parts.append(f"Pressure: falling ({pslope:.2f} hPa/hr).")
+            parts.append(f"Pressione: in calo ({pslope:.2f} hPa/h).")
         else:
-            parts.append(f"Pressure: rising (+{pslope:.2f} hPa/hr).")
+            parts.append(f"Pressione: in aumento (+{pslope:.2f} hPa/h).")
 
     # Wind
     if wspd is None:
-        parts.append("Current wind: unknown.")
+        parts.append("Vento attuale: sconosciuto.")
     else:
-        wind_clause = f"Current wind: {wspd:.0f} kn"
+        wind_clause = f"Vento attuale: {wspd:.0f} kn"
+        trend_txt = trend_it.get(wind_trend, wind_trend.lower())
         if delta_kn is None:
-            wind_clause += f" ({wind_trend.lower()})."
+            wind_clause += f" ({trend_txt})."
         else:
-            wind_clause += f", {wind_trend.lower()} (Δ {'+' if delta_kn >= 0 else ''}{delta_kn:.1f} kn)."
+            wind_clause += f", {trend_txt} (Δ {'+' if delta_kn >= 0 else ''}{delta_kn:.1f} kn)."
         parts.append(wind_clause)
-        parts.append(wind_outlook)
+        outlook_it = _translate_wind_outlook(wind_outlook)
+        if outlook_it:
+            parts.append(outlook_it)
 
+    gust_txt = gust_it.get(gust_likelihood, str(gust_likelihood).lower())
     if (
         expected_gust_kn is not None
         and wind_mean_kn is not None
         and gust_factor is not None
     ):
         parts.append(
-            "Gusts: "
-            f"{gust_likelihood.lower()} likelihood, "
-            f"expected ~{expected_gust_kn:.0f} kn (x{gust_factor:.1f} of mean)."
+            "Raffiche: "
+            f"probabilita {gust_txt}, "
+            f"attese ~{expected_gust_kn:.0f} kn (x{gust_factor:.1f} della media)."
         )
     else:
-        parts.append(f"Gusts: {gust_likelihood.lower()} likelihood.")
+        parts.append(f"Raffiche: probabilita {gust_txt}.")
 
     if wind_rotation_likely:
+        rot_txt = rotation_it.get(wind_rotation_likely, str(wind_rotation_likely).lower())
         if wind_rotation_likely not in ("Uncertain", "Unknown"):
-            parts.append(f"Likely direction change: {wind_rotation_likely.lower()}.")
+            parts.append(f"Variazione direzione probabile: {rot_txt}.")
         else:
-            parts.append("Likely direction change: uncertain.")
+            parts.append("Variazione direzione probabile: incerta.")
 
     if frontal_zone:
-        parts.append("Frontal zone likely.")
+        parts.append("Possibile zona frontale.")
 
     if anchoring_risk:
-        parts.append(f"Anchoring risk: {anchoring_risk}.")
+        parts.append(f"Rischio ancoraggio: {anchor_it.get(anchoring_risk, anchoring_risk)}.")
 
     summary = " ".join(parts).strip()
     return LowEstimate(
@@ -833,6 +909,7 @@ async def async_estimate_low_properties(
     wind_dir_history_minutes: int = 120,
     pressure_history_hours: int = 12,
     pressure_slope_window_hours: int = 3,
+    pressure_slope_override_hpa_per_hr: float | None = None,
     latitude: float | None = None,
 ) -> LowEstimate:
     """
@@ -924,8 +1001,8 @@ async def async_estimate_low_properties(
         if fv is not None:
             press_vals.append((st.last_updated, fv))
 
-    pslope = None
-    if press_vals:
+    pslope = _safe_float(pressure_slope_override_hpa_per_hr)
+    if pslope is None and press_vals:
         slope_start = now - timedelta(hours=pressure_slope_window_hours)
         window = [(t, v) for (t, v) in press_vals if t >= slope_start]
         if len(window) >= 2:
