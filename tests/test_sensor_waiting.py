@@ -52,11 +52,12 @@ async def test_async_update_sensor_gate_excludes_device_tracker(
         raise RuntimeError("stop-after-capture")
 
     sensor.sensors_valid = _capture_required_sensors  # type: ignore[method-assign]
+    sensor._schedule_retry_update = lambda: None  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="stop-after-capture"):
-        await sensor.async_update()
+    await sensor.async_update()
 
     assert sensor.device_tracker_home not in captured["required"]
+    assert sensor._attributes["startup_block_reason"] == "update_exception"
 
 
 @pytest.mark.asyncio
@@ -211,3 +212,59 @@ async def test_async_update_overlap_guard_skips_second_update(
     sensor._update_in_progress = False
     await sensor.async_update()
     assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_async_update_keeps_previous_state_when_started_and_sensors_drop(
+    hass: HomeAssistant,
+) -> None:
+    """After first successful startup, temporary sensor drops should not lock to waiting."""
+    sensor = Zambretti(hass, _make_entry())
+    sensor._attributes["fully_started"] = True
+    sensor._set_state("Previsione precedente valida")
+
+    sensor.sensors_valid = lambda _ids: (False, ["sensor.pressure: unavailable"])  # type: ignore[method-assign]
+    sensor._state_from_entity_or_cache = lambda _eid, _attr: None  # type: ignore[method-assign]
+
+    calls = {"retry": 0}
+
+    def _schedule_retry():
+        calls["retry"] += 1
+
+    sensor._schedule_retry_update = _schedule_retry  # type: ignore[method-assign]
+
+    await sensor.async_update()
+
+    assert calls["retry"] == 1
+    assert sensor.state == "Previsione precedente valida"
+
+
+@pytest.mark.asyncio
+async def test_async_update_exception_continues_waiting_attempts(
+    hass: HomeAssistant,
+) -> None:
+    """Unexpected update exceptions should not freeze waiting attempt progression."""
+    sensor = Zambretti(hass, _make_entry())
+    sensor.counter = 22
+    sensor._set_state("Zambretti in attesa dei sensori ... tentativo 22")
+
+    async def _boom():
+        raise RuntimeError("forced update error")
+
+    sensor._async_update_internal = _boom  # type: ignore[method-assign]
+
+    calls = {"retry": 0}
+
+    def _schedule_retry():
+        calls["retry"] += 1
+
+    sensor._schedule_retry_update = _schedule_retry  # type: ignore[method-assign]
+
+    await sensor.async_update()
+
+    assert calls["retry"] == 1
+    assert sensor.counter == 23
+    assert "tentativo 23" in sensor.state
+    assert sensor._attributes["startup_block_reason"] == "update_exception"
+    assert sensor._attributes["update_error_count"] == 1
+    assert "forced update error" in sensor._attributes["last_update_error"]

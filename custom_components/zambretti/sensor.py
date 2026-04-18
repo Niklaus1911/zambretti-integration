@@ -2,6 +2,7 @@
 import logging
 import time
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Callable
 
 import homeassistant.helpers.config_validation as cv
@@ -171,6 +172,36 @@ class Zambretti(SensorEntity):
             text = text[: MAX_HA_STATE_LEN - 3].rstrip(" ,.;") + "..."
         self._state = text
 
+    def _state_from_entity_or_cache(self, entity_id: str | None, attr_key: str):
+        """Return a state-like object from HA entity state or last cached attribute.
+
+        This keeps forecasting alive when a source sensor is transiently unknown/
+        unavailable after the integration already started successfully once.
+        """
+        if entity_id:
+            state_obj = self.hass.states.get(entity_id)
+            if state_obj:
+                normalized_state = str(state_obj.state).strip().lower()
+                if normalized_state not in (
+                    "",
+                    "none",
+                    STATE_UNKNOWN,
+                    STATE_UNAVAILABLE,
+                ):
+                    return state_obj
+
+        cached_value = self._attributes.get(attr_key)
+        if str(cached_value).strip().lower() not in (
+            "",
+            "none",
+            "unknown",
+            "unavailable",
+            "sconosciuto",
+        ):
+            return SimpleNamespace(state=cached_value, attributes={})
+
+        return None
+
     def __init__(self, hass, entry):
         self.hass = hass
         self._set_state("Inizializzazione", fallback="Inizializzazione")
@@ -286,6 +317,10 @@ class Zambretti(SensorEntity):
             "last_updated": None,
             "prev_update": "N/A",
             "fully_started": False,
+            "sensor_gate_warnings": None,
+            "startup_block_reason": None,
+            "last_update_error": None,
+            "update_error_count": 0,
             # debug data
             "dbg_len_state": None,
         }
@@ -357,6 +392,40 @@ class Zambretti(SensorEntity):
         self._update_in_progress = True
         try:
             await self._async_update_internal()
+        except Exception as err:
+            self.counter += 1
+            self._attributes["update_error_count"] = (
+                int(self._attributes.get("update_error_count") or 0) + 1
+            )
+            self._attributes["last_update_error"] = str(err)
+            self._attributes["startup_block_reason"] = "update_exception"
+
+            _LOGGER.exception(
+                "❌ Unexpected error during Zambretti update for %s",
+                getattr(self, "entity_id", "unknown"),
+            )
+
+            # If we are already showing waiting state, keep attempt progression visible.
+            if str(self._state).startswith("Zambretti in attesa dei sensori"):
+                self._set_state(
+                    f"Zambretti in attesa dei sensori ... tentativo {self.counter}",
+                    fallback="Zambretti in attesa dei sensori",
+                )
+            elif not self._attributes.get("fully_started"):
+                self._set_state(
+                    "Zambretti in avvio (errore temporaneo)",
+                    fallback="Zambretti in avvio",
+                )
+
+            try:
+                self.async_write_ha_state()
+            except NoEntitySpecifiedError:
+                _LOGGER.debug(
+                    "Entity not yet registered; skipping async_write_ha_state()."
+                )
+
+            # Ensure next retry is always scheduled after unexpected failures.
+            self._schedule_retry_update()
         finally:
             self._update_in_progress = False
 
@@ -384,11 +453,104 @@ class Zambretti(SensorEntity):
         ]
         # if not all required sensors are available yet then try again later
         sensors_ok, invalid_sensors = self.sensors_valid(required_sensors)
+        degraded_mode = False
         if not sensors_ok:
+            if self._attributes.get("fully_started"):
+                degraded_mode = True
+                _LOGGER.warning(
+                    "⚠️ Required sensors temporarily unavailable after startup (%s). "
+                    "Continuing with last known values.",
+                    "; ".join(invalid_sensors),
+                )
+            else:
+                _LOGGER.debug(
+                    "⚠️ Required sensors not yet available (%s). Scheduling re-check in 10 seconds.",
+                    "; ".join(invalid_sensors),
+                )
+                self._attributes["sensor_gate_warnings"] = list(invalid_sensors)
+                self._attributes["startup_block_reason"] = "required_sensors_unavailable"
+                self.counter += 1
+                self._set_state(
+                    f"Zambretti in attesa dei sensori ... tentativo {self.counter}",
+                    fallback="Zambretti in attesa dei sensori",
+                )
+                # Push the updated state to HA immediately
+                t_pub0 = time.perf_counter()
+                try:
+                    self.async_write_ha_state()
+                except NoEntitySpecifiedError:
+                    _LOGGER.debug(
+                        "Entity not yet registered; skipping async_write_ha_state()."
+                    )
+                t_publish_ms = (time.perf_counter() - t_pub0) * 1000.0
+
+                t_total_ms = (time.perf_counter() - t0_total) * 1000.0
+                t_compute_ms = max(t_total_ms - t_publish_ms, 0.0)
+
+                if Z_DEBUG:
+                    _LOGGER.info(
+                        "⏱️ Zambretti perf (%s): total=%.1fms compute=%.1fms publish=%.1fms",
+                        getattr(self, "entity_id", "unknown"),
+                        t_total_ms,
+                        t_compute_ms,
+                        t_publish_ms,
+                    )
+
+                # Schedule a re-check in 10 seconds without blocking startup.
+                self._schedule_retry_update()
+                return
+
+        if sensors_ok:
+            self.counter = 0
+            self._attributes["sensor_gate_warnings"] = None
+            self._attributes["startup_block_reason"] = None
+
+        # Resolve sensor states, allowing cached fallback in degraded mode.
+        pressure_state = self._state_from_entity_or_cache(
+            self.atmospheric_pressure_sensor, "sensor_pressure"
+        )
+        wind_direction_state = self._state_from_entity_or_cache(
+            self.wind_direction_sensor, "sensor_wind_direction"
+        )
+        temperature_state = self._state_from_entity_or_cache(
+            self.temperature_sensor, "sensor_temperature"
+        )
+        humidity_state = self._state_from_entity_or_cache(
+            self.humidity_sensor, "sensor_humidity"
+        )
+        wind_speed_state = self._state_from_entity_or_cache(
+            self.wind_speed_sensor_knots, "sensor_wind_speed"
+        )
+
+        unresolved = []
+        if pressure_state is None:
+            unresolved.append(self.atmospheric_pressure_sensor or "pressure")
+        if wind_direction_state is None:
+            unresolved.append(self.wind_direction_sensor or "wind_direction")
+        if temperature_state is None:
+            unresolved.append(self.temperature_sensor or "temperature")
+        if humidity_state is None:
+            unresolved.append(self.humidity_sensor or "humidity")
+        if wind_speed_state is None:
+            unresolved.append(self.wind_speed_sensor_knots or "wind_speed")
+
+        if unresolved:
+            if self._attributes.get("fully_started") or degraded_mode:
+                _LOGGER.warning(
+                    "⚠️ Missing critical sensor values (%s). Keeping last forecast and retrying.",
+                    "; ".join(unresolved),
+                )
+                self._attributes["sensor_gate_warnings"] = unresolved
+                self._attributes["startup_block_reason"] = "required_sensors_unavailable"
+                self._schedule_retry_update()
+                return
+
             _LOGGER.debug(
                 "⚠️ Required sensors not yet available (%s). Scheduling re-check in 10 seconds.",
-                "; ".join(invalid_sensors),
+                "; ".join(unresolved),
             )
+            self._attributes["sensor_gate_warnings"] = list(unresolved)
+            self._attributes["startup_block_reason"] = "required_sensors_unavailable"
             self.counter += 1
             self._set_state(
                 f"Zambretti in attesa dei sensori ... tentativo {self.counter}",
@@ -426,12 +588,7 @@ class Zambretti(SensorEntity):
         # -------------------------------
         # Read sensors
         # -------------------------------
-        pressure_state = self.hass.states.get(self.atmospheric_pressure_sensor)
-        wind_direction_state = self.hass.states.get(self.wind_direction_sensor)
         device_tracker_home_state = self.hass.states.get(self.device_tracker_home)
-        temperature_state = self.hass.states.get(self.temperature_sensor)
-        humidity_state = self.hass.states.get(self.humidity_sensor)
-        wind_speed_state = self.hass.states.get(self.wind_speed_sensor_knots)
 
         # -------------------------------
         # Update sensor attributes
@@ -518,6 +675,10 @@ class Zambretti(SensorEntity):
             _LOGGER.debug(
                 "⚠️ Coordinates not available yet. Scheduling re-check in 10 seconds."
             )
+            self._attributes["sensor_gate_warnings"] = [
+                "coordinate non disponibili (device tracker/HA config)"
+            ]
+            self._attributes["startup_block_reason"] = "coordinates_unavailable"
             self.counter += 1
             self._set_state(
                 f"Zambretti in attesa dei sensori ... tentativo {self.counter}",
