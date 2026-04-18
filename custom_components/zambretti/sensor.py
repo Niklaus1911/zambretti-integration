@@ -51,7 +51,9 @@ async def async_setup_entry(
     )
 
     sensor = Zambretti(hass, entry)
-    async_add_entities([sensor], update_before_add=True)
+    # Add the entity immediately so it appears in HA even if startup data
+    # dependencies (history/recorder/related sensors) are still warming up.
+    async_add_entities([sensor], update_before_add=False)
 
     # Store reference so the service can update all instances
     hass.data.setdefault(DOMAIN, {})
@@ -273,6 +275,11 @@ class Zambretti(SensorEntity):
     @property
     def extra_state_attributes(self):
         return self._attributes
+
+    async def async_added_to_hass(self):
+        """Schedule an immediate refresh once the entity is registered."""
+        await super().async_added_to_hass()
+        self.async_schedule_update_ha_state(force_refresh=True)
 
     async def async_update(self):
         """Fetch sensor data from HA and update the entity state."""

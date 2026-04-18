@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from homeassistant.core import HomeAssistant
 
+from custom_components.zambretti import sensor as sensor_platform
 from custom_components.zambretti.sensor import Zambretti
 
 
@@ -68,3 +69,21 @@ async def test_sensors_valid_reports_invalid_states(hass: HomeAssistant) -> None
     assert any("sensor.wind_direction" in err for err in errors)
     assert any("sensor.missing" in err for err in errors)
     assert any("missing entity_id in config" in err for err in errors)
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_does_not_block_entity_add(
+    hass: HomeAssistant,
+) -> None:
+    """Entity should be added immediately without waiting for first successful update."""
+    added: dict[str, object] = {}
+
+    def _add_entities(entities, update_before_add=False):
+        added["entities"] = entities
+        added["update_before_add"] = update_before_add
+
+    await sensor_platform.async_setup_entry(hass, _make_entry(), _add_entities)
+
+    assert added["update_before_add"] is False
+    assert len(added["entities"]) == 1
+    assert isinstance(added["entities"][0], Zambretti)
