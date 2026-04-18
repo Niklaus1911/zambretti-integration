@@ -46,33 +46,39 @@ async def calculate_most_frequent_wind_direction(hass, entity_id):
     end_time = dt_util.utcnow()
 
     # Fetch recorded history from the HA database
-    history_data = {}
-    history_data = await hass.async_add_executor_job(
-        history.get_significant_states,
-        hass,
-        start_time,
-        end_time,
-        [entity_id],
-        None,
-        False,
-        False,
-        False,
-    )
     try:
-        if len(history_data) > 0:
-            _LOGGER.debug(
-                f"✅ Found history for {entity_id}, total records: {len(history_data[entity_id])}"
-            )
-        else:
-            _LOGGER.debug(f"⚠️ No history for {entity_id}.")
-    except ValueError:
-        _LOGGER.debug(f"⚠️ No history for {entity_id}. Except.")
+        history_data = await hass.async_add_executor_job(
+            history.get_significant_states,
+            hass,
+            start_time,
+            end_time,
+            [entity_id],
+            None,
+            False,
+            False,
+            False,
+        )
+    except Exception as err:
+        _LOGGER.debug("⚠️ Wind history read failed for %s: %s", entity_id, err)
+        history_data = {}
 
-    wind_directions = []
+    if isinstance(history_data, dict):
+        history_entries = list(history_data.get(entity_id, []))
+    else:
+        history_entries = []
+
+    if history_entries:
+        _LOGGER.debug(
+            "✅ Found history for %s, total records: %s",
+            entity_id,
+            len(history_entries),
+        )
+    else:
+        _LOGGER.debug("⚠️ No usable history for %s. Falling back to current state.", entity_id)
 
     # Extract wind direction values
     wind_directions = []
-    for state in history_data[entity_id]:
+    for state in history_entries:
         wind_value = safe_float(state.state)
         if wind_value is not None:
             wind_directions.append(wind_degrees_to_text(wind_value))
@@ -93,7 +99,7 @@ async def calculate_most_frequent_wind_direction(hass, entity_id):
 
     # Find the most frequent wind direction
     return collections.Counter(wind_directions).most_common(1)[0][0], len(
-        history_data[entity_id]
+        history_entries
     )
 
 
